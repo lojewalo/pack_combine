@@ -79,12 +79,12 @@ fn inner() -> Result<i32> {
         println!("    sha256: {}", hex::encode(hash));
       }
 
-      let mut input = String::with_capacity(2);
       let use_pack: u8;
 
       loop {
         print!("  enter choice: ");
         std::io::stdout().flush()?;
+        let mut input = String::with_capacity(2);
         std::io::stdin().read_line(&mut input)?;
         if let Ok(x) = input.trim().parse::<u8>() {
           if x != 0 && x as usize <= packs.len() {
