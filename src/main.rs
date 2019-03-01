@@ -28,7 +28,7 @@ fn inner() -> Result<i32> {
   let args: Vec<String> = std::env::args().skip(1).collect();
   if args.len() < 2 {
     eprintln!("usage: pack_combine <output_dir> <pack_dir...>");
-    return Ok(0);
+    return Ok(1);
   }
 
   let output = Path::new(&args[0]);
