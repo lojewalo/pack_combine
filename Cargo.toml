@@ -1,10 +1,11 @@
 [package]
-name = "pack_compare"
+name = "pack_combine"
 version = "0.1.0"
 authors = ["Kyle Clemens <git@kyleclemens.com>"]
 edition = "2018"
 
 [dependencies]
+failure = "0.1"
+hex = "0.3"
 openssl = "0.10"
 walkdir = "2"
-failure = "0.1"

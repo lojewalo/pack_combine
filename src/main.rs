@@ -6,7 +6,7 @@ use openssl::hash::{Hasher, MessageDigest};
 use walkdir::WalkDir;
 
 use std::{
-  collections::HashMap,
+  collections::{HashMap, HashSet},
   fs::File,
   io::{Read, Write},
   path::{Path, PathBuf},
@@ -26,86 +26,85 @@ fn main() {
 
 fn inner() -> Result<i32> {
   let args: Vec<String> = std::env::args().skip(1).collect();
-  if args.len() != 3 {
-    eprintln!("usage: pack_compare <pack1_dir> <pack2_dir> <output_dir>");
+  if args.len() < 2 {
+    eprintln!("usage: pack_combine <output_dir> <pack_dir...>");
     return Ok(0);
   }
 
-  let pack1 = Path::new(&args[0]);
-  let pack2 = Path::new(&args[1]);
-  let output = Path::new(&args[2]);
+  let output = Path::new(&args[0]);
+  let packs: Vec<&Path> = args.iter().skip(1).map(Path::new).collect();
 
-  if !pack1.exists() || !pack1.is_dir() {
-    eprintln!("{} does not exist or is not a directory", pack1.to_string_lossy());
-    return Ok(1);
-  }
-  if !pack2.exists() || !pack2.is_dir() {
-    eprintln!("{} does not exist or is not a directory", pack2.to_string_lossy());
-    return Ok(1);
-  }
   if output.exists() {
     eprintln!("{} should not exist", output.to_string_lossy());
     return Ok(1);
   }
 
+  for pack in &packs {
+    if !pack.exists() || !pack.is_dir() {
+      eprintln!("{} does not exist or is not a directory", pack.to_string_lossy());
+      return Ok(1);
+    }
+  }
+
   println!("hashing packs");
-  let pack1_hashes = pack_hashes(&pack1)?;
-  let pack2_hashes = pack_hashes(&pack2)?;
+  let pack_hashes = packs.iter().map(|x| pack_hashes(x)).collect::<Result<Vec<_>>>()?;
 
-  println!("pack 1 len: {}", pack1_hashes.len());
-  println!("pack 2 len: {}", pack2_hashes.len());
+  let all_paths: HashSet<&PathBuf> = pack_hashes.iter().flat_map(|x| x.keys().collect::<HashSet<_>>()).collect();
 
-  let mut all_paths = Vec::with_capacity(pack1_hashes.len() + pack2_hashes.len());
+  let mut final_paths = Vec::with_capacity(pack_hashes[0].len());
 
   println!("building file list");
-  for (pack1_path, pack1_hash) in pack1_hashes {
-    let pack2_hash = match pack2_hashes.get(&pack1_path) {
-      Some(x) => x,
-      None => {
-        all_paths.push((&pack1, pack1_path));
-        continue;
-      },
+  for path in all_paths {
+    let hashes: Vec<(usize, &[u8])> = pack_hashes
+      .iter()
+      .enumerate()
+      .flat_map(|(i, x)| x.get(path).map(|h| (i, h.as_slice())))
+      .collect();
+
+    let has_conflicts = {
+      let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
+      all_hashes.sort();
+      all_hashes.dedup();
+      all_hashes.len() != 1
     };
 
-    if pack1_hash != *pack2_hash {
-      println!("collision: {}", pack1_path.to_string_lossy());
-      println!("  enter 1 to take from {}", pack1.to_string_lossy());
-      println!("  enter 2 to take from {}", pack2.to_string_lossy());
-      let mut input = String::with_capacity(1);
-      let use_pack1: bool;
+    if has_conflicts {
+      let mut coll_out = false;
+      for (i, hash) in hashes {
+        if !coll_out {
+          println!("collision: {}", path.to_string_lossy());
+          coll_out = true;
+        }
+        println!("  enter {} to take from {}", i + 1, packs[i].to_string_lossy());
+        println!("    sha256: {}", hex::encode(hash));
+      }
+
+      let mut input = String::with_capacity(2);
+      let use_pack: u8;
 
       loop {
-        print!("  enter choice [1/2]: ");
+        print!("  enter choice: ");
         std::io::stdout().flush()?;
         std::io::stdin().read_line(&mut input)?;
-        let trimmed = input.trim();
-        if trimmed == "1" {
-          use_pack1 = true;
-          break;
-        }
-        if trimmed == "2" {
-          use_pack1 = false;
+        if let Ok(x) = input.trim().parse() {
+          use_pack = x;
           break;
         }
       }
 
-      if use_pack1 {
-        all_paths.push((&pack1, pack1_path));
-      } else {
-        all_paths.push((&pack2, pack1_path));
-      }
+      final_paths.push((&packs[use_pack as usize], path));
 
       continue;
     }
 
     // files are the same, so which one doesn't matter
-    all_paths.push((&pack1, pack1_path));
+    final_paths.push((&packs[0], path));
   }
 
   println!("creating output");
   std::fs::create_dir_all(&output)?;
 
-  for (prefix, rel_path) in all_paths {
+  for (prefix, rel_path) in final_paths {
     println!("{}", rel_path.to_string_lossy());
     let out_path = output.join(&rel_path);
     let in_path = prefix.join(&rel_path);
