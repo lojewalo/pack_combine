@@ -2,7 +2,7 @@
 // hashes, combine dirs?
 
 use failure::Error;
-use openssl::hash::{Hasher, MessageDigest};
+use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use std::{
@@ -120,7 +120,7 @@ fn inner() -> Result<i32> {
 }
 
 fn pack_hashes(pack: &Path) -> Result<HashMap<PathBuf, Vec<u8>>> {
-  let sha256 = MessageDigest::sha256();
+  let mut hasher = Sha256::default();
 
   let mut hashes = HashMap::new();
   let mut buf = [0; 4096];
@@ -132,8 +132,6 @@ fn pack_hashes(pack: &Path) -> Result<HashMap<PathBuf, Vec<u8>>> {
       continue;
     }
 
-    let mut hasher = Hasher::new(sha256)?;
-
     let mut f = File::open(entry.path())?;
 
     loop {
@@ -141,10 +139,10 @@ fn pack_hashes(pack: &Path) -> Result<HashMap<PathBuf, Vec<u8>>> {
       if read == 0 {
         break;
       }
-      hasher.update(&buf[..read])?;
+      hasher.input(&buf[..read]);
     }
 
-    let hash = hasher.finish()?;
+    let hash = hasher.result_reset();
     let rel_path = entry.path().strip_prefix(pack)?;
     hashes.insert(rel_path.to_path_buf(), hash.to_vec());
   }
