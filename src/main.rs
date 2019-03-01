@@ -86,9 +86,11 @@ fn inner() -> Result<i32> {
         print!("  enter choice: ");
         std::io::stdout().flush()?;
         std::io::stdin().read_line(&mut input)?;
-        if let Ok(x) = input.trim().parse() {
-          use_pack = x;
-          break;
+        if let Ok(x) = input.trim().parse::<u8>() {
+          if x != 0 {
+            use_pack = x - 1;
+            break;
+          }
         }
       }
 
