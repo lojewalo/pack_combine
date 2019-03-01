@@ -15,3 +15,7 @@ directories after.
 
 Note that all files from all directories will be hashed first (SHA256), then file hashes will be
 compared, prompting which file to use if any hash is different.
+
+## Example
+
+[![asciicast](https://asciinema.org/a/XLuLIauiAC7XQzHDpLpbh5mvH.svg)](https://asciinema.org/a/XLuLIauiAC7XQzHDpLpbh5mvH)
