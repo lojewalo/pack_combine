@@ -87,7 +87,7 @@ fn inner() -> Result<i32> {
         std::io::stdout().flush()?;
         std::io::stdin().read_line(&mut input)?;
         if let Ok(x) = input.trim().parse::<u8>() {
-          if x != 0 {
+          if x != 0 && x as usize <= packs.len() {
             use_pack = x - 1;
             break;
           }
