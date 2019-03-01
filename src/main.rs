@@ -97,8 +97,9 @@ fn inner() -> Result<i32> {
       continue;
     }
 
-    // files are the same, so which one doesn't matter
-    final_paths.push((&packs[0], path));
+    if !hashes.is_empty() {
+      final_paths.push((&packs[hashes[0].0], path));
+    }
   }
 
   println!("creating output");
