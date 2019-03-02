@@ -2,6 +2,7 @@
 // hashes, combine dirs?
 
 use failure::Error;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
@@ -59,7 +60,7 @@ fn inner() -> Result<i32> {
       continue;
     }
     let hashes: Vec<(&Path, Vec<u8>)> = owning_packs
-      .iter()
+      .par_iter()
       .map(|&p| hash_file(&p.join(&path)).map(|h| (p, h)))
       .collect::<Result<_>>()?;
 
