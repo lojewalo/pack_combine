@@ -76,7 +76,7 @@ fn inner() -> Result<i32> {
 
       let has_conflicts = {
         let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
-        all_hashes.sort();
+        all_hashes.sort_unstable();
         all_hashes.dedup();
         all_hashes.len() != 1
       };
