@@ -18,4 +18,4 @@ compared, prompting which file to use if any hash is different.
 
 ## Example
 
-[![asciicast](https://asciinema.org/a/XLuLIauiAC7XQzHDpLpbh5mvH.svg)](https://asciinema.org/a/XLuLIauiAC7XQzHDpLpbh5mvH)
+[![asciicast](https://asciinema.org/a/fTxqpa0NVwYSLydf7zUMiPwUi.svg)](https://asciinema.org/a/fTxqpa0NVwYSLydf7zUMiPwUi)
