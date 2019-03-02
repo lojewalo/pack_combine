@@ -2,7 +2,6 @@
 // hashes, combine dirs?
 
 use failure::Error;
-use parking_lot::Mutex;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
@@ -52,31 +51,28 @@ fn inner() -> Result<i32> {
   println!("building file list");
   let all_paths = all_files(&packs)?;
 
-  let final_paths = Mutex::new(Vec::with_capacity(all_paths.len()));
-
   struct Conflict<'a> {
     path: &'a PathBuf,
     hashes: Vec<(&'a Path, Vec<u8>)>,
   }
 
+  enum EntryStatus<'a> {
+    Normal((&'a Path, &'a Path)),
+    Conflict(Conflict<'a>),
+  }
+
   println!("finding conflicts");
-  let conflicts: Vec<Conflict> = all_paths
+  let statuses: Vec<EntryStatus> = all_paths
     .par_iter()
-    .filter_map(|(path, owning_packs)| {
+    .map(|(path, owning_packs)| {
       if owning_packs.len() == 1 {
-        final_paths.lock().push((owning_packs[0], path));
-        return None;
+        return Ok(EntryStatus::Normal((owning_packs[0], path)));
       }
 
-      let hashes: Result<Vec<(&Path, Vec<u8>)>> = owning_packs
+      let hashes: Vec<(&Path, Vec<u8>)> = owning_packs
         .par_iter()
         .map(|&p| hash_file(&p.join(&path)).map(|h| (p, h)))
-        .collect::<Result<_>>();
-
-      let hashes = match hashes {
-        Ok(h) => h,
-        Err(e) => return Some(Err(e)),
-      };
+        .collect::<Result<_>>()?;
 
       let has_conflicts = {
         let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
@@ -86,21 +82,29 @@ fn inner() -> Result<i32> {
       };
 
       if has_conflicts {
-        return Some(Ok(Conflict {
+        return Ok(EntryStatus::Conflict(Conflict {
           path,
           hashes,
         }));
       }
 
       if !owning_packs.is_empty() {
-        final_paths.lock().push((&owning_packs[0], path));
+        return Ok(EntryStatus::Normal((&owning_packs[0], path)));
       }
 
-      None
+      unreachable!("path owned by no packs")
     })
     .collect::<Result<_>>()?;
 
-  let mut final_paths = final_paths.into_inner();
+  let mut final_paths = Vec::with_capacity(all_paths.len());
+  let mut conflicts = Vec::new();
+
+  for status in statuses {
+    match status {
+      EntryStatus::Normal(n) => final_paths.push(n),
+      EntryStatus::Conflict(conflict) => conflicts.push(conflict),
+    }
+  }
 
   println!("resolving conflicts");
   for conflict in conflicts {
