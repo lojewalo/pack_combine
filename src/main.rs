@@ -6,7 +6,8 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use std::{
-  collections::{HashMap, HashSet},
+  cell::RefCell,
+  collections::HashMap,
   fs::File,
   io::{Read, Write},
   path::{Path, PathBuf},
@@ -46,20 +47,21 @@ fn inner() -> Result<i32> {
     }
   }
 
-  println!("hashing packs");
-  let pack_hashes = packs.iter().map(|x| pack_hashes(x)).collect::<Result<Vec<_>>>()?;
-
-  let all_paths: HashSet<&PathBuf> = pack_hashes.iter().flat_map(|x| x.keys().collect::<HashSet<_>>()).collect();
-
-  let mut final_paths = Vec::with_capacity(pack_hashes[0].len());
-
   println!("building file list");
-  for path in all_paths {
-    let hashes: Vec<(usize, &[u8])> = pack_hashes
+  let all_paths = all_files(&packs)?;
+
+  let mut final_paths = Vec::with_capacity(all_paths.len());
+
+  println!("finding conflicts");
+  for (path, owning_packs) in all_paths {
+    if owning_packs.len() == 1 {
+      final_paths.push((owning_packs[0], path));
+      continue;
+    }
+    let hashes: Vec<(&Path, Vec<u8>)> = owning_packs
       .iter()
-      .enumerate()
-      .flat_map(|(i, x)| x.get(path).map(|h| (i, h.as_slice())))
-      .collect();
+      .map(|&p| hash_file(&p.join(&path)).map(|h| (p, h)))
+      .collect::<Result<_>>()?;
 
     let has_conflicts = {
       let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
@@ -70,12 +72,12 @@ fn inner() -> Result<i32> {
 
     if has_conflicts {
       let mut coll_out = false;
-      for (i, hash) in hashes {
+      for (i, (p, hash)) in hashes.into_iter().enumerate() {
         if !coll_out {
           println!("collision: {}", path.to_string_lossy());
           coll_out = true;
         }
-        println!("  enter {} to take from {}", i + 1, packs[i].to_string_lossy());
+        println!("  enter {} to take from {}", i + 1, p.to_string_lossy());
         println!("    sha256: {}", hex::encode(hash));
       }
 
@@ -94,13 +96,13 @@ fn inner() -> Result<i32> {
         }
       }
 
-      final_paths.push((&packs[use_pack as usize], path));
+      final_paths.push((&owning_packs[use_pack as usize], path));
 
       continue;
     }
 
-    if !hashes.is_empty() {
-      final_paths.push((&packs[hashes[0].0], path));
+    if !owning_packs.is_empty() {
+      final_paths.push((&owning_packs[0], path));
     }
   }
 
@@ -121,33 +123,43 @@ fn inner() -> Result<i32> {
   Ok(0)
 }
 
-fn pack_hashes(pack: &Path) -> Result<HashMap<PathBuf, Vec<u8>>> {
-  let mut hasher = Sha256::default();
+thread_local! {
+  pub static HASHER: RefCell<Sha256> = RefCell::new(Sha256::default());
+}
 
-  let mut hashes = HashMap::new();
-  let mut buf = [0; 4096];
+fn all_files<'a>(paths: &'a [&'a Path]) -> Result<HashMap<PathBuf, Vec<&'a Path>>> {
+  let mut files: HashMap<PathBuf, Vec<&Path>> = HashMap::new();
 
-  for entry in WalkDir::new(pack) {
-    let entry = entry?;
+  for path in paths {
+    for entry in WalkDir::new(path) {
+      let entry = entry?;
 
-    if entry.path().is_dir() {
-      continue;
-    }
-
-    let mut f = File::open(entry.path())?;
-
-    loop {
-      let read = f.read(&mut buf)?;
-      if read == 0 {
-        break;
+      if !entry.path().is_file() {
+        continue;
       }
-      hasher.input(&buf[..read]);
-    }
 
-    let hash = hasher.result_reset();
-    let rel_path = entry.path().strip_prefix(pack)?;
-    hashes.insert(rel_path.to_path_buf(), hash.to_vec());
+      files.entry(entry.path().strip_prefix(path)?.to_owned()).or_default().push(path);
+    }
   }
 
-  Ok(hashes)
+  Ok(files)
+}
+
+fn hash_file(path: &Path) -> Result<Vec<u8>> {
+  let mut hasher = HASHER.with(|h| h.borrow_mut().clone());
+  let mut buf = [0; 4096];
+
+  let mut f = File::open(path)?;
+
+  loop {
+    let read = f.read(&mut buf)?;
+    if read == 0 {
+      break;
+    }
+    hasher.input(&buf[..read]);
+  }
+
+  let hash = hasher.result_reset();
+
+  Ok(hash.to_vec())
 }
