@@ -51,9 +51,22 @@ fn inner() -> Result<i32> {
   println!("building file list");
   let all_paths = all_files(&packs)?;
 
+  #[derive(PartialEq, Eq)]
   struct Conflict<'a> {
     path: &'a PathBuf,
     hashes: Vec<(&'a Path, Vec<u8>)>,
+  }
+
+  impl<'a> PartialOrd for Conflict<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+      self.path.partial_cmp(other.path)
+    }
+  }
+
+  impl<'a> Ord for Conflict<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+      self.path.cmp(other.path)
+    }
   }
 
   enum EntryStatus<'a> {
@@ -105,6 +118,8 @@ fn inner() -> Result<i32> {
       EntryStatus::Conflict(conflict) => conflicts.push(conflict),
     }
   }
+
+  conflicts.sort_unstable();
 
   println!("resolving conflicts");
   for conflict in conflicts {
