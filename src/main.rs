@@ -71,12 +71,9 @@ fn inner() -> Result<i32> {
     };
 
     if has_conflicts {
-      let mut coll_out = false;
+      println!("collision: {}", path.to_string_lossy());
+
       for (i, (p, hash)) in hashes.into_iter().enumerate() {
-        if !coll_out {
-          println!("collision: {}", path.to_string_lossy());
-          coll_out = true;
-        }
         println!("  enter {} to take from {}", i + 1, p.to_string_lossy());
         println!("    sha256: {}", hex::encode(hash));
       }
