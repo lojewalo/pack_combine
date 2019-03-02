@@ -2,6 +2,7 @@
 // hashes, combine dirs?
 
 use failure::Error;
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
@@ -51,57 +52,80 @@ fn inner() -> Result<i32> {
   println!("building file list");
   let all_paths = all_files(&packs)?;
 
-  let mut final_paths = Vec::with_capacity(all_paths.len());
+  let final_paths = Mutex::new(Vec::with_capacity(all_paths.len()));
+
+  struct Conflict<'a> {
+    path: &'a PathBuf,
+    hashes: Vec<(&'a Path, Vec<u8>)>,
+  }
 
   println!("finding conflicts");
-  for (path, owning_packs) in all_paths {
-    if owning_packs.len() == 1 {
-      final_paths.push((owning_packs[0], path));
-      continue;
-    }
-    let hashes: Vec<(&Path, Vec<u8>)> = owning_packs
-      .par_iter()
-      .map(|&p| hash_file(&p.join(&path)).map(|h| (p, h)))
-      .collect::<Result<_>>()?;
-
-    let has_conflicts = {
-      let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
-      all_hashes.sort();
-      all_hashes.dedup();
-      all_hashes.len() != 1
-    };
-
-    if has_conflicts {
-      println!("collision: {}", path.to_string_lossy());
-
-      for (i, (p, hash)) in hashes.into_iter().enumerate() {
-        println!("  enter {} to take from {}", i + 1, p.to_string_lossy());
-        println!("    sha256: {}", hex::encode(hash));
+  let conflicts: Vec<Conflict> = all_paths
+    .par_iter()
+    .filter_map(|(path, owning_packs)| {
+      if owning_packs.len() == 1 {
+        final_paths.lock().push((owning_packs[0], path));
+        return None;
       }
 
-      let use_pack: u8;
+      let hashes: Result<Vec<(&Path, Vec<u8>)>> = owning_packs
+        .par_iter()
+        .map(|&p| hash_file(&p.join(&path)).map(|h| (p, h)))
+        .collect::<Result<_>>();
 
-      loop {
-        print!("  enter choice: ");
-        std::io::stdout().flush()?;
-        let mut input = String::with_capacity(2);
-        std::io::stdin().read_line(&mut input)?;
-        if let Ok(x) = input.trim().parse::<u8>() {
-          if x != 0 && x as usize <= packs.len() {
-            use_pack = x - 1;
-            break;
-          }
+      let hashes = match hashes {
+        Ok(h) => h,
+        Err(e) => return Some(Err(e)),
+      };
+
+      let has_conflicts = {
+        let mut all_hashes: Vec<_> = hashes.iter().map(|(_, hash)| hash).collect();
+        all_hashes.sort();
+        all_hashes.dedup();
+        all_hashes.len() != 1
+      };
+
+      if has_conflicts {
+        return Some(Ok(Conflict {
+          path,
+          hashes,
+        }));
+      }
+
+      if !owning_packs.is_empty() {
+        final_paths.lock().push((&owning_packs[0], path));
+      }
+
+      None
+    })
+    .collect::<Result<_>>()?;
+
+  let mut final_paths = final_paths.into_inner();
+
+  println!("resolving conflicts");
+  for conflict in conflicts {
+    println!("conflict: {}", conflict.path.to_string_lossy());
+    for (i, (pack, hash)) in conflict.hashes.iter().enumerate() {
+      println!("  enter {} to take from {}", i + 1, pack.to_string_lossy());
+      println!("    sha256: {}", hex::encode(&hash));
+    }
+
+    let use_pack: u8;
+
+    loop {
+      print!("  enter choice: ");
+      std::io::stdout().flush()?;
+      let mut input = String::with_capacity(2);
+      std::io::stdin().read_line(&mut input)?;
+      if let Ok(x) = input.trim().parse::<u8>() {
+        if x != 0 && x as usize <= conflict.hashes.len() {
+          use_pack = x - 1;
+          break;
         }
       }
-
-      final_paths.push((&owning_packs[use_pack as usize], path));
-
-      continue;
     }
 
-    if !owning_packs.is_empty() {
-      final_paths.push((&owning_packs[0], path));
-    }
+    final_paths.push((&conflict.hashes[use_pack as usize].0, conflict.path));
   }
 
   println!("creating output");
