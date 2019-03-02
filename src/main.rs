@@ -114,20 +114,17 @@ fn inner() -> Result<i32> {
       println!("    sha256: {}", hex::encode(&hash));
     }
 
-    let use_pack: u8;
-
-    loop {
+    let use_pack: u8 = loop {
       print!("  enter choice: ");
       std::io::stdout().flush()?;
       let mut input = String::with_capacity(2);
       std::io::stdin().read_line(&mut input)?;
       if let Ok(x) = input.trim().parse::<u8>() {
         if x != 0 && x as usize <= conflict.hashes.len() {
-          use_pack = x - 1;
-          break;
+          break x -1;
         }
       }
-    }
+    };
 
     final_paths.push((&conflict.hashes[use_pack as usize].0, conflict.path));
   }
