@@ -53,30 +53,32 @@ fn inner() -> Result<i32> {
 
   #[derive(PartialEq, Eq)]
   struct Conflict<'a> {
-    path: &'a PathBuf,
+    path: PathBuf,
     hashes: Vec<(&'a Path, Vec<u8>)>,
   }
 
   impl<'a> PartialOrd for Conflict<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-      self.path.partial_cmp(other.path)
+      self.path.partial_cmp(&other.path)
     }
   }
 
   impl<'a> Ord for Conflict<'a> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-      self.path.cmp(other.path)
+      self.path.cmp(&other.path)
     }
   }
 
   enum EntryStatus<'a> {
-    Normal((&'a Path, &'a Path)),
+    Normal((&'a Path, PathBuf)),
     Conflict(Conflict<'a>),
   }
 
+  let mut final_paths = Vec::with_capacity(all_paths.len());
+
   println!("finding conflicts");
   let statuses: Vec<EntryStatus> = all_paths
-    .par_iter()
+    .into_par_iter()
     .map(|(path, owning_packs)| {
       if owning_packs.len() == 1 {
         return Ok(EntryStatus::Normal((owning_packs[0], path)));
@@ -109,7 +111,6 @@ fn inner() -> Result<i32> {
     })
     .collect::<Result<_>>()?;
 
-  let mut final_paths = Vec::with_capacity(all_paths.len());
   let mut conflicts = Vec::new();
 
   for status in statuses {
